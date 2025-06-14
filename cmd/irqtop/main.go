@@ -112,9 +112,9 @@ func main() {
 
 	_, _ = reader.Read()
 
-	var lastRecords []irq.Record
+    var lastRecords []irq.Record
 
-	evCh := make(chan tcell.Event, 10)
+    evCh := make(chan tcell.Event, 10)
 	go func() {
 		for {
 			ev := screen.PollEvent()
@@ -132,7 +132,9 @@ func main() {
 			}
 			lastRecords = deltas
 			if trigger, top := det.Update(deltas, cfg); trigger {
-                screen.Beep()
+                if err := screen.Beep(); err != nil {
+                    log.Printf("beep error: %v", err)
+                }
                 view.SetAlert(fmt.Sprintf("IRQ %s %d/s", top.IRQ, top.Delta))
             }
 			view.Render(deltas)

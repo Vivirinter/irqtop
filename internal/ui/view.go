@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/gdamore/tcell/v2"
-
 	"github.com/Vivirinter/irqtop/internal/irq"
+	"github.com/gdamore/tcell/v2"
 )
 
 const (
@@ -25,8 +24,8 @@ type View struct {
 	yellowThresh int
 	hidePseudo   bool
 	sortBy       string
-	alertMsg   string
-	alertTicks int
+	alertMsg     string
+	alertTicks   int
 }
 
 func NewView(s tcell.Screen, n, red, yellow int, hide bool, sortBy string) *View {

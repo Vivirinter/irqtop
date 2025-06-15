@@ -51,8 +51,7 @@ func (r *Reader) Read() ([]Record, error) {
 		return nil, err
 	}
 	defer func() {
-		if closeErr := file.Close(); closeErr != nil {
-		}
+		_ = file.Close()
 	}()
 
 	scanner := bufio.NewScanner(file)

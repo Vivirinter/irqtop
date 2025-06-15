@@ -71,11 +71,10 @@ func (v *View) Render(records []irq.Record) {
 	}
 
 	if v.sortBy == SortByName {
-		sort.Slice(records, func(i, j int) bool { return records[i].Delta > records[j].Delta })
+		sort.Slice(records, func(i, j int) bool { return records[i].Name < records[j].Name })
 		if len(records) > v.topN {
 			records = records[:v.topN]
 		}
-		sort.Slice(records, func(i, j int) bool { return records[i].Name < records[j].Name })
 	} else {
 		sort.Slice(records, func(i, j int) bool { return records[i].Delta > records[j].Delta })
 		if len(records) > v.topN {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -13,21 +14,21 @@ import (
 )
 
 const (
-    adjustPercent = 10 // hotkey changes thresholds by ±10%
-    minRed        = 1  // never let thresholds go below 1
-    minYellow     = 1
+	adjustPercent = 10 // hotkey changes thresholds by ±10%
+	minRed        = 1  // never let thresholds go below 1
+	minYellow     = 1
 )
 
 type Config struct {
-    Interval      time.Duration
-    TopN          int
-    CPUIdx        int
-    RedThresh     int
-    YellowThresh  int
-    AlertThresh   int
-    AlertDur      int
-    HidePseudo    bool
-    SortBy        string
+	Interval     time.Duration
+	TopN         int
+	CPUIdx       int
+	RedThresh    int
+	YellowThresh int
+	AlertThresh  int
+	AlertDur     int
+	HidePseudo   bool
+	SortBy       string
 }
 
 func adjustThreshold(ptr *int, up bool, min int) {
@@ -81,19 +82,19 @@ func handleKey(e *tcell.EventKey, red, yellow *int, sortBy *string, view *ui.Vie
 }
 
 func main() {
-    cfg := &Config{}
-    flag.DurationVar(&cfg.Interval, "interval", time.Second, "Refresh interval")
-    flag.IntVar(&cfg.TopN, "n", 10, "Show top N IRQs")
-    flag.IntVar(&cfg.CPUIdx, "cpu", -1, "CPU index to monitor (-1 = sum)")
-    flag.IntVar(&cfg.RedThresh, "red", 1000, "Delta/s threshold for red color")
-    flag.IntVar(&cfg.YellowThresh, "yellow", 100, "Delta/s threshold for yellow color")
-    flag.IntVar(&cfg.AlertThresh, "alert", 5000, "Delta/s threshold for anomaly beep")
-    flag.IntVar(&cfg.AlertDur, "alertdur", 3, "Number of consecutive intervals above alert to trigger beep")
-    flag.BoolVar(&cfg.HidePseudo, "hide-pseudo", false, "Hide pseudo IRQs (LOC/CAL/TLB/RES/ERR)")
-    flag.StringVar(&cfg.SortBy, "sort", ui.SortByDelta, "Sort by delta or name")
-    flag.Parse()
+	cfg := &Config{}
+	flag.DurationVar(&cfg.Interval, "interval", time.Second, "Refresh interval")
+	flag.IntVar(&cfg.TopN, "n", 10, "Show top N IRQs")
+	flag.IntVar(&cfg.CPUIdx, "cpu", -1, "CPU index to monitor (-1 = sum)")
+	flag.IntVar(&cfg.RedThresh, "red", 1000, "Delta/s threshold for red color")
+	flag.IntVar(&cfg.YellowThresh, "yellow", 100, "Delta/s threshold for yellow color")
+	flag.IntVar(&cfg.AlertThresh, "alert", 5000, "Delta/s threshold for anomaly beep")
+	flag.IntVar(&cfg.AlertDur, "alertdur", 3, "Number of consecutive intervals above alert to trigger beep")
+	flag.BoolVar(&cfg.HidePseudo, "hide-pseudo", false, "Hide pseudo IRQs (LOC/CAL/TLB/RES/ERR)")
+	flag.StringVar(&cfg.SortBy, "sort", ui.SortByDelta, "Sort by delta or name")
+	flag.Parse()
 
-    screen, err := tcell.NewScreen()
+	screen, err := tcell.NewScreen()
 	if err != nil {
 		log.Fatalf("failed to create screen: %v", err)
 	}
@@ -102,23 +103,35 @@ func main() {
 	}
 	defer screen.Fini()
 
-    reader := irq.NewReader(cfg.CPUIdx)
-    view := ui.NewView(screen, cfg.TopN, cfg.RedThresh, cfg.YellowThresh, cfg.HidePseudo, cfg.SortBy)
+	reader := irq.NewReader(cfg.CPUIdx)
+	view := ui.NewView(screen, cfg.TopN, cfg.RedThresh, cfg.YellowThresh, cfg.HidePseudo, cfg.SortBy)
 
-    det := &Detector{}
+	det := &Detector{}
 
-    ticker := time.NewTicker(cfg.Interval)
+	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
 	_, _ = reader.Read()
 
-    var lastRecords []irq.Record
+	var lastRecords []irq.Record
 
-    evCh := make(chan tcell.Event, 10)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	evCh := make(chan tcell.Event, 10)
 	go func() {
+		defer close(evCh)
 		for {
-			ev := screen.PollEvent()
-			evCh <- ev
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				ev := screen.PollEvent()
+				select {
+				case evCh <- ev:
+				case <-ctx.Done():
+					return
+				}
+			}
 		}
 	}()
 
@@ -132,16 +145,14 @@ func main() {
 			}
 			lastRecords = deltas
 			if trigger, top := det.Update(deltas, cfg); trigger {
-                if err := screen.Beep(); err != nil {
-                    log.Printf("beep error: %v", err)
-                }
-                view.SetAlert(fmt.Sprintf("IRQ %s %d/s", top.IRQ, top.Delta))
-            }
+				_ = screen.Beep()
+				view.SetAlert(fmt.Sprintf("IRQ %s %d/s", top.IRQ, top.Delta))
+			}
 			view.Render(deltas)
 		case ev := <-evCh:
 			switch e := ev.(type) {
 			case *tcell.EventKey:
-	                if quit := handleKey(e, &cfg.RedThresh, &cfg.YellowThresh, &cfg.SortBy, view, &lastRecords); quit {
+				if quit := handleKey(e, &cfg.RedThresh, &cfg.YellowThresh, &cfg.SortBy, view, &lastRecords); quit {
 					return
 				}
 			case *tcell.EventResize:

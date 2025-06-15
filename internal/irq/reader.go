@@ -3,7 +3,6 @@ package irq
 import (
 	"bufio"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -14,21 +13,21 @@ type Record struct {
 }
 
 type Reader struct {
-	prev   map[string]int
-	cpuIdx int
+	prev       map[string]int
+	cpuIdx     int
+	isFirstRun bool
 }
 
 func NewReader(cpuIdx int) *Reader {
-	return &Reader{prev: make(map[string]int), cpuIdx: cpuIdx}
+	return &Reader{prev: make(map[string]int), cpuIdx: cpuIdx, isFirstRun: true}
 }
 
-// Read parses /proc/interrupts and returns delta since previous call.
 func (r *Reader) Read() ([]Record, error) {
 	file, err := os.Open("/proc/interrupts")
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
+	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
 	if !scanner.Scan() {
@@ -45,47 +44,26 @@ func (r *Reader) Read() ([]Record, error) {
 		if len(fields) < 2 {
 			continue
 		}
-		irq := strings.TrimSuffix(fields[0], ":")
 
-		var nums []int
-		nameStartIdx := 1
-		for i, f := range fields[1:] {
-			if v, err := strconv.Atoi(f); err == nil {
-				nums = append(nums, v)
-				nameStartIdx = i + 2
-				break
-			}
+		key, total, ok := parseLine(fields, r.cpuIdx)
+		if !ok {
+			continue
 		}
-		var total int
-		if r.cpuIdx >= 0 {
-			if r.cpuIdx < len(nums) {
-				total = nums[r.cpuIdx]
-			} else {
-				total = 0
-			}
-		} else {
-			for _, v := range nums {
-				total += v
-			}
-		}
-		var name string
-		if nameStartIdx < len(fields) {
-			name = strings.Join(fields[nameStartIdx:], " ")
-		}
-		if name == "" {
-			name = "unknown"
-		}
-
-		key := irq + "\x00" + name
 		current[key] = total
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
 	var out []Record
 	for key, curr := range current {
 		delta := curr - r.prev[key]
-		// Handle counter resets by taking current value as delta
 		if delta < 0 {
 			delta = curr
+		}
+		if r.isFirstRun {
+			delta = 0
 		}
 		parts := strings.Split(key, "\x00")
 		if len(parts) >= 2 {
@@ -93,5 +71,6 @@ func (r *Reader) Read() ([]Record, error) {
 		}
 	}
 	r.prev = current
+	r.isFirstRun = false
 	return out, nil
 }
